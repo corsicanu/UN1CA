@@ -80,12 +80,33 @@ EXTRACT_OS_PARTITIONS()
 
     if $SHOULD_EXTRACT; then
         if [ ! -f "lpdump" ] || $SHOULD_EXTRACT_SUPER; then
-            echo "Extracting super.img"
-            tar xf "$AP_TAR" "super.img.lz4"
-            lz4 -d -q --rm "super.img.lz4" "super.img.sparse"
-            simg2img "super.img.sparse" "super.img" && rm "super.img.sparse"
-            { lpunpack "super.img" > /dev/null; } 2>&1
-            lpdump "super.img" > "lpdump" && rm "super.img"
+            if tar tf "$AP_TAR" "super.img.lz4" &>/dev/null; then
+                echo "Extracting super.img"
+                tar xf "$AP_TAR" "super.img.lz4"
+                lz4 -d -q --rm "super.img.lz4" "super.img.sparse"
+                simg2img "super.img.sparse" "super.img" && rm "super.img.sparse"
+                { lpunpack "super.img" > /dev/null; } 2>&1
+                lpdump "super.img" > "lpdump" && rm "super.img"
+            else
+                # Non LP extraction (legacy)
+                echo "- super.img not found, extracting individual partitions..."
+                for folder in $COMMON_FOLDERS; do
+                    # handle for uncommon named partitions on some legacy layout snapdragons (image.img.ext4) 
+                    for ext in "" ".ext4"; do
+                        IMG_FILE="${folder}.img${ext}"
+                        for TAR_FILE in "$AP_TAR" "$CSC_TAR"; do
+                            if tar tf "$TAR_FILE" "$IMG_FILE.lz4" &>/dev/null; then
+                                echo "Extracting ${folder}.img"
+                                tar xf "$TAR_FILE" "$IMG_FILE.lz4"
+                                lz4 -d -q --rm "$IMG_FILE.lz4" "$IMG_FILE"
+                                mv "$IMG_FILE" "${folder}.img.sparse"
+                                simg2img "${folder}.img.sparse" "${folder}.img" && rm "${folder}.img.sparse"
+                                break
+                            fi
+                        done
+                    done
+                done
+            fi
         fi
 
         [ -d "tmp_out" ] && mountpoint -q "tmp_out" && sudo umount "tmp_out"
@@ -190,6 +211,7 @@ EXTRACT_ALL()
 {
     BL_TAR=$(find "$ODIN_DIR/${MODEL}_${REGION}" -name "BL*")
     AP_TAR=$(find "$ODIN_DIR/${MODEL}_${REGION}" -name "AP*")
+    CSC_TAR=$(find "$ODIN_DIR/${MODEL}_${REGION}" -name "CSC*")
 
     mkdir -p "$FW_DIR/${MODEL}_${REGION}"
     EXTRACT_KERNEL_BINARIES
